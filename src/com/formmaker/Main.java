@@ -146,7 +146,7 @@ public class Main
 					}
 				}
 
-				if (properties.contains("out"))
+				if (properties.containsKey("out"))
 				{
 					if (!createOut(properties.getProperty("out")))
 					{
@@ -314,8 +314,8 @@ public class Main
 	{
 		path = path == null ? "" : path;
 
-		outPath = new File(properties.getProperty("out"));
-
+		outPath = new File(path);
+		
 		if (!outPath.exists())
 		{
 			System.out.println("\"" + properties.getProperty("out") + "\" does not exist.");
@@ -342,12 +342,14 @@ public class Main
 				+ "\t\t<script src=\"js/main.js\"></script>\n"
 				+ "\t\t<script src=\"js/altaArtista.js\"></script>\n"
 				+ "\t</head>\n"
-				+ "\t<body>\n");
+				+ "\t<body>\n"
+				+ "\t\t<form>");
 	}
 
 	private static void printLowerHTML(PrintWriter out)
 	{
-		out.print("\t</body>\n"
+		out.print("\t\t</form>"
+				+ "\t</body>\n"
 				+ "</html>");
 	}
 }
