@@ -1,9 +1,14 @@
 package com.formmaker;
 
+import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -14,114 +19,335 @@ public class Main
 
 	private static Properties properties;
 	private static Connection conn;
-	private static String database;
 	private static ArrayList<String> tables;
-	private static String outPath;
+	private static File outPath;
+	private static boolean errors = false;
+	private static boolean test = true;
+	private static String filePath;
 
 	public static void main(String args[])
 	{
 		boolean lookForFile = false;
 		properties = new Properties();
 
+		loop:
 		for (int i = 0; i < args.length; i++)
 		{
 			String arg = args[i];
-			
-			// File section
-			if (lookForFile)
-			{
-				try (FileInputStream in = new FileInputStream(arg))
-				{
-					properties.load(in);
-
-					if (properties.containsKey("connection"))
-					{
-						try
-						{
-							Class.forName("com.mysql.jdbc.Driver");
-							conn = DriverManager.getConnection(properties.getProperty("connection"));
-						} catch (ClassNotFoundException | SQLException ex)
-						{
-							System.out.println("Can't estabilish connection, check the connection string");
-						}
-					}
-					
-					if (properties.contains("database"))
-					{
-						database = properties.getProperty("database");
-					}
-					if (properties.contains("out"))
-					{
-						database = properties.getProperty("out");
-					}
-					if (properties.contains("tables"))
-					{
-						tables = new ArrayList<>(Arrays.asList(properties.getProperty("tables").split(",")));
-					}
-				} catch (IOException e)
-				{
-					System.out.println("The file: \"" + arg + "\" does not exist");
-					return;
-				}
-			}
 
 			if (arg.equals("-f"))
 			{
-				lookForFile = true;
-
-				continue;
 			}
 
 			// Normal section
 			switch (arg)
 			{
+				case "-f":
+				{
+					lookForFile = true;
+					if (args.length - 1 >= i)
+					{
+						System.out.println("Please specify the file path");
+
+						return;
+					}
+
+					filePath = args[i + 1];
+
+					break loop;
+				}
 				case "-c":
 				{
 					try
 					{
 						if (args.length - 1 == i)
+						{
 							break;
-						
+						}
+
 						arg = args[++i];
-						
+
 						Class.forName("com.mysql.jdbc.Driver");
 						conn = DriverManager.getConnection(arg);
-					} catch (ClassNotFoundException | SQLException ex)
+					} catch (ClassNotFoundException | SQLException e)
 					{
 						System.out.println("Can't estabilish connection, check the connection string");
-					}
-					
-					break;
-				}
-				case "-d":
-				{
-					if (args.length - 1 == i)
-						break;
 
-					database = args[++i];
+						if (errors)
+						{
+							e.printStackTrace();
+						}
+
+						return;
+					}
+
+					break;
 				}
 				case "-o":
 				{
 					if (args.length - 1 == i)
+					{
 						break;
+					}
 
-					outPath = args[++i];
+					if (!createOut(args[++i]))
+					{
+						return;
+					}
 				}
 				case "-t":
 				{
 					if (args.length - 1 == i)
+					{
 						break;
+					}
 
 					tables = new ArrayList<>(Arrays.asList(args[++i].split(",")));
+
+					if (tables == null || tables.isEmpty())
+					{
+						System.out.println("You must specify at least a table");
+
+						return;
+					}
 				}
 			}
 		}
-		
+
+		if (test)
+		{
+			lookForFile = true;
+			filePath = "test.properties";
+		}
+
+		// File section
+		if (lookForFile)
+		{
+			try (FileInputStream in = new FileInputStream(filePath))
+			{
+				properties.load(in);
+
+				if (properties.containsKey("connection"))
+				{
+					try
+					{
+						Class.forName("com.mysql.jdbc.Driver");
+						conn = DriverManager.getConnection(properties.getProperty("connection"));
+					} catch (ClassNotFoundException | SQLException e)
+					{
+						System.out.println("Can't estabilish connection, check the connection string");
+
+						if (errors || test)
+						{
+							e.printStackTrace();
+						}
+
+						return;
+					}
+				}
+
+				if (properties.contains("out"))
+				{
+					if (!createOut(properties.getProperty("out")))
+					{
+						return;
+					}
+					
+					outPath = new File(properties.getProperty("out"));
+				}
+				if (properties.contains("tables"))
+				{
+					tables = new ArrayList<>(Arrays.asList(properties.getProperty("tables").split(",")));
+
+					if (tables == null || tables.isEmpty())
+					{
+						System.out.println("You must specify at least a table");
+
+						return;
+					}
+				}
+				if (properties.contains("errors"))
+				{
+					errors = properties.getProperty("errors").equals("true");
+				}
+			} catch (IOException e)
+			{
+				if (errors || test)
+				{
+					e.printStackTrace();
+				}
+
+				System.out.println("The file: \"" + filePath + "\" does not exist");
+				return;
+			}
+		}
+
 		if (conn == null)
 		{
-			System.out.println("Can't estabilish connection, check the connection string");
-			
+			System.out.println("You must specify a correct connection");
+
 			return;
 		}
+
+		// If tables is not setted add all tables
+		if (tables == null || tables.isEmpty())
+		{
+			PreparedStatement psTables = null;
+			ResultSet rsTables = null;
+
+			try
+			{
+				psTables = conn.prepareStatement("show tables");
+				rsTables = psTables.executeQuery();
+				tables = new ArrayList<>();
+
+				while (rsTables.next())
+				{
+					tables.add(rsTables.getString(1));
+				}
+			} catch (SQLException e)
+			{
+				System.out.println("SQL error");
+
+				if (errors || test)
+				{
+					e.printStackTrace();
+				}
+
+				return;
+			} finally
+			{
+				try
+				{
+					if (rsTables != null)
+					{
+						rsTables.close();
+					}
+				} catch (SQLException e)
+				{
+				}
+				try
+				{
+					if (psTables != null)
+					{
+						psTables.close();
+					}
+				} catch (SQLException e)
+				{
+				}
+			}
+		}
+
+		// Start read tables
+		for (String table : tables)
+		{
+			ResultSet rs = null;
+			File file = new File(outPath, table + ".html");
+			
+			FileOutputStream fo = null;
+			PrintWriter out = null;
+
+			// Create file
+			try
+			{
+				if (!file.exists())
+				{
+					file.createNewFile();
+				}
+				fo = new FileOutputStream(file);
+				out = new PrintWriter(fo);
+			}
+			catch (IOException e)
+			{
+				System.out.println("Can not create \"" + table + ".html\" file");
+
+				if (errors)
+				{
+					e.printStackTrace();
+				}
+				
+				continue;
+			}
+
+			// Anlize table
+			try (PreparedStatement ps = conn.prepareStatement("describe " + table);)
+			{
+				rs = ps.executeQuery();
+
+				printUpperHTML(out);
+				
+				while (rs.next())
+				{
+					out.println(rs.getString(1) + " - " + rs.getString(2));
+				}
+				
+				printLowerHTML(out);
+				
+				out.flush();
+			}
+			catch (SQLException e)
+			{
+				System.out.println("SQL error");
+
+				if (errors || test)
+				{
+					e.printStackTrace();
+				}
+
+				return;
+			} finally
+			{
+				try
+				{
+					if (rs != null)
+					{
+						rs.close();
+					}
+				} catch (SQLException e)
+				{
+				}
+			}
+		}
+	}
+
+	public static boolean createOut(String path)
+	{
+		path = path == null ? "" : path;
+
+		outPath = new File(properties.getProperty("out"));
+
+		if (!outPath.exists())
+		{
+			System.out.println("\"" + properties.getProperty("out") + "\" does not exist.");
+			return false;
+		}
+		if (!outPath.isDirectory())
+		{
+			System.out.println("\"" + properties.getProperty("out") + "\" must be a directory.");
+			return false;
+		}
+
+		return true;
+	}
+
+	private static void printUpperHTML(PrintWriter out)
+	{
+		out.print("<!DOCTYPE html>\n"
+				+ "<html lang=\"es\">\n"
+				+ "\t<head>\n"
+				+ "\t\t<title>Galería de Arte Mexicano</title>\n"
+				+ "\t\t<meta charset=\"UTF-8\">\n"
+				+ "\t\t<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+				+ "\t\t<link href=\"css/main.css\" rel=\"stylesheet\">\n"
+				+ "\t\t<script src=\"js/main.js\"></script>\n"
+				+ "\t\t<script src=\"js/altaArtista.js\"></script>\n"
+				+ "\t</head>\n"
+				+ "\t<body>\n");
+	}
+
+	private static void printLowerHTML(PrintWriter out)
+	{
+		out.print("\t</body>\n"
+				+ "</html>");
 	}
 }
