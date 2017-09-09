@@ -1,2 +1,5 @@
 /classes
 /build/
+manifest.mf
+test.properties
+build.xml
