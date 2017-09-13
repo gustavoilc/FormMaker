@@ -24,6 +24,8 @@ public class Main
 	private static boolean errors = false;
 	private static boolean test = true;
 	private static String filePath;
+	private static boolean labeled;
+	private static boolean placeholder;
 
 	public static void main(String args[])
 	{
@@ -155,7 +157,7 @@ public class Main
 					
 					outPath = new File(properties.getProperty("out"));
 				}
-				if (properties.contains("tables"))
+				if (properties.containsKey("tables"))
 				{
 					tables = new ArrayList<>(Arrays.asList(properties.getProperty("tables").split(",")));
 
@@ -166,9 +168,17 @@ public class Main
 						return;
 					}
 				}
-				if (properties.contains("errors"))
+				if (properties.containsKey("errors"))
 				{
 					errors = properties.getProperty("errors").equals("true");
+				}
+				if (properties.containsKey("labeled"))
+				{
+					labeled = properties.getProperty("labeled").equals("true");
+				}
+				if (properties.containsKey("placeholder"))
+				{
+					placeholder = properties.getProperty("placeholder").equals("true");
 				}
 			} catch (IOException e)
 			{
@@ -276,10 +286,73 @@ public class Main
 
 				printUpperHTML(out);
 				
+				// Build fields
 				while (rs.next())
 				{
-					out.println(rs.getString(1) + " - " + rs.getString(2));
+					// Parse properties
+					String name = rs.getString(1);
+					String webName = Tools.webWord(name);
+					String type = rs.getString(2);
+					boolean allowNull = rs.getString(3).equals("YES");
+					String key = rs.getString(4);
+					String def = rs.getString(5);
+					String extra = rs.getString(6);
+					boolean unsigned = type.contains("unsigned");
+					String lenght = type.substring(type.indexOf("(") + 1, type.indexOf(")"));
+					
+					if (unsigned)
+					{
+						type = type.substring(0, type.indexOf("unsigned"));
+					}
+					if (!lenght.isEmpty())
+					{
+						type = type.substring(0, type.indexOf("("));
+					}
+					
+					String metadata = "name=\"" + webName + "\"" +
+							(placeholder ? " placeholder=\"" + name + "\"" : "") +
+							(labeled ? " id=\"" + webName + "\"" : "") +
+							(allowNull || key.equals("PRI") ? "" : " required");
+					
+					if (key.equals("PRI"))
+					{
+						out.println("\t\t\t<input type=\"hidden\" " + metadata + ">");
+					}
+					else
+					{
+						// Set label
+						if (labeled)
+							out.println("\t\t\t<label for=\"" + webName + "\">" + name + "</label>");
+					
+						switch (type)
+						{
+							case "int":
+							case "smallint":
+							case "tinyint":
+							case "float":
+							case "decimal":
+							{
+								out.println("\t\t\t<input type=\"number\" " + metadata + ">");
+								
+								break;
+							}
+							case "varchar":
+							case "nvarchar":
+							case "char":
+							case "text":
+							{
+								if (type.equals("text") || Integer.parseInt(lenght) > 300)
+								{
+									out.println("\t\t\t<textarea " + metadata + "></textarea>");
+								}
+								
+								break;
+							}
+						}
+					}
 				}
+
+				out.println("\t\t\t<button type=\"submit\">Enviar</button>");
 				
 				printLowerHTML(out);
 				
@@ -308,6 +381,8 @@ public class Main
 				}
 			}
 		}
+		
+		System.out.println("Done");
 	}
 
 	public static boolean createOut(String path)
@@ -343,12 +418,12 @@ public class Main
 				+ "\t\t<script src=\"js/altaArtista.js\"></script>\n"
 				+ "\t</head>\n"
 				+ "\t<body>\n"
-				+ "\t\t<form>");
+				+ "\t\t<form>\n");
 	}
 
 	private static void printLowerHTML(PrintWriter out)
 	{
-		out.print("\t\t</form>"
+		out.print("\t\t</form>\n"
 				+ "\t</body>\n"
 				+ "</html>");
 	}
