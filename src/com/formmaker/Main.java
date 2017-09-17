@@ -12,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Properties;
 
 public class Main
@@ -19,6 +20,7 @@ public class Main
 
 	private static Properties properties;
 	private static Connection conn;
+	private static String database;
 	private static ArrayList<String> tables;
 	private static File outPath;
 	private static boolean errors = false;
@@ -26,6 +28,8 @@ public class Main
 	private static String filePath;
 	private static boolean labeled;
 	private static boolean placeholder;
+	private static boolean keyRelation;
+	private static HashSet<String> foreinKeys = new HashSet<>();
 
 	public static void main(String args[])
 	{
@@ -154,7 +158,7 @@ public class Main
 					{
 						return;
 					}
-					
+
 					outPath = new File(properties.getProperty("out"));
 				}
 				if (properties.containsKey("tables"))
@@ -180,6 +184,10 @@ public class Main
 				{
 					placeholder = properties.getProperty("placeholder").equals("true");
 				}
+				if (properties.containsKey("key_relation"))
+				{
+					keyRelation = properties.getProperty("key_relation").equals("true");
+				}
 			} catch (IOException e)
 			{
 				if (errors || test)
@@ -189,6 +197,30 @@ public class Main
 
 				System.out.println("The file: \"" + filePath + "\" does not exist");
 				return;
+			}
+		}
+
+		try (
+				PreparedStatement ps = conn.prepareStatement("select TABLE_NAME, COLUMN_NAME from information_schema.KEY_COLUMN_USAGE where TABLE_SCHEMA = ?");)
+		{
+			// Search database in connection and make forein keys
+			database = conn.getSchema();
+			ps.setString(1, database);
+			ResultSet rs = ps.executeQuery();
+
+			while (rs.next())
+			{
+				foreinKeys.add(rs.getString(1) + "." + rs.getString(2));
+			}
+		} catch (SQLException e)
+		{
+			database = "";
+
+			System.out.println("Can not do table relations");
+
+			if (errors)
+			{
+				e.printStackTrace();
 			}
 		}
 
@@ -253,7 +285,7 @@ public class Main
 		{
 			ResultSet rs = null;
 			File file = new File(outPath, table + ".html");
-			
+
 			FileOutputStream fo = null;
 			PrintWriter out = null;
 
@@ -266,8 +298,7 @@ public class Main
 				}
 				fo = new FileOutputStream(file);
 				out = new PrintWriter(fo);
-			}
-			catch (IOException e)
+			} catch (IOException e)
 			{
 				System.out.println("Can not create \"" + table + ".html\" file");
 
@@ -275,7 +306,7 @@ public class Main
 				{
 					e.printStackTrace();
 				}
-				
+
 				continue;
 			}
 
@@ -285,7 +316,7 @@ public class Main
 				rs = ps.executeQuery();
 
 				printUpperHTML(out);
-				
+
 				// Build fields
 				while (rs.next())
 				{
@@ -299,7 +330,7 @@ public class Main
 					String extra = rs.getString(6);
 					boolean unsigned = type.contains("unsigned");
 					String lenght = type.substring(type.indexOf("(") + 1, type.indexOf(")"));
-					
+
 					if (unsigned)
 					{
 						type = type.substring(0, type.indexOf("unsigned"));
@@ -308,57 +339,65 @@ public class Main
 					{
 						type = type.substring(0, type.indexOf("("));
 					}
-					
-					String metadata = "name=\"" + webName + "\"" +
-							(placeholder ? " placeholder=\"" + name + "\"" : "") +
-							(labeled ? " id=\"" + webName + "\"" : "") +
-							(allowNull || key.equals("PRI") ? "" : " required");
-					
+
+					String metadata = "name=\"" + webName + "\""
+							+ (placeholder ? " placeholder=\"" + name + "\"" : "")
+							+ (labeled ? " id=\"" + webName + "\"" : "")
+							+ (allowNull || key.equals("PRI") ? "" : " required");
+
 					if (key.equals("PRI"))
 					{
 						out.println("\t\t\t<input type=\"hidden\" " + metadata + ">");
-					}
-					else
+					} else
 					{
 						// Set label
 						if (labeled)
-							out.println("\t\t\t<label for=\"" + webName + "\">" + name + "</label>");
-					
-						switch (type)
 						{
-							case "int":
-							case "smallint":
-							case "tinyint":
-							case "float":
-							case "decimal":
+							out.println("\t\t\t<label for=\"" + webName + "\">" + name + "</label>");
+						}
+
+						// Check relation
+						if (false)
+						{
+						}
+						else
+						{
+							switch (type)
 							{
-								out.println("\t\t\t<input type=\"number\" " + metadata + ">");
-								
-								break;
-							}
-							case "varchar":
-							case "nvarchar":
-							case "char":
-							case "text":
-							{
-								if (type.equals("text") || Integer.parseInt(lenght) > 300)
+								case "int":
+								case "smallint":
+								case "tinyint":
+								case "bigint":
+								case "float":
+								case "decimal":
 								{
-									out.println("\t\t\t<textarea " + metadata + "></textarea>");
+									out.println("\t\t\t<input type=\"number\" " + metadata + ">");
+
+									break;
 								}
-								
-								break;
+								case "varchar":
+								case "nvarchar":
+								case "char":
+								case "text":
+								{
+									if (type.equals("text") || Integer.parseInt(lenght) > 300)
+									{
+										out.println("\t\t\t<textarea " + metadata + "></textarea>");
+									}
+
+									break;
+								}
 							}
 						}
 					}
 				}
 
 				out.println("\t\t\t<button type=\"submit\">Enviar</button>");
-				
+
 				printLowerHTML(out);
-				
+
 				out.flush();
-			}
-			catch (SQLException e)
+			} catch (SQLException e)
 			{
 				System.out.println("SQL error");
 
@@ -381,7 +420,7 @@ public class Main
 				}
 			}
 		}
-		
+
 		System.out.println("Done");
 	}
 
@@ -390,7 +429,7 @@ public class Main
 		path = path == null ? "" : path;
 
 		outPath = new File(path);
-		
+
 		if (!outPath.exists())
 		{
 			System.out.println("\"" + properties.getProperty("out") + "\" does not exist.");
