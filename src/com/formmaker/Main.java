@@ -17,7 +17,6 @@ import java.util.Properties;
 
 public class Main
 {
-
 	private static Properties properties;
 	private static Connection conn;
 	private static String database;
